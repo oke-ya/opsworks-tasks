@@ -4,6 +4,12 @@ require aws_config if File.exists?(aws_config)
 require 'timeout'
 
 namespace :opsworks do
+  task :install do
+    Dir.glob(File.expand_path('../../config/*.rb', __FILE__)) do |f|
+      FileUtils.cp f, Rails.root.join("config", File.basename(f))
+    end
+  end
+
   task :setup => ["rds:setup",
                   "opsworks:stack:allocate",
                   "opsworks:layer:allocate",
