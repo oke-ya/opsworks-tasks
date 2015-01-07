@@ -4,7 +4,7 @@ require aws_config if File.exists?(aws_config)
 namespace :vpc do
   task :initialize do
     @vpc_opts = Configure.new('vpc').parse
-    @app_name = Rails.application.class.name.split('::').first.downcase
+    @app_name = ENV["STACK_NAME"]
     @ec2 = AWS::EC2::Client.new(region: @vpc_opts[:region])
   end
 

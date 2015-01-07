@@ -1,6 +1,8 @@
 aws_config = Rails.root.join('config', 'aws.rb')
 require aws_config if File.exists?(aws_config)
 
+ENV_NAMES = {stg: 'staging', prod: 'production'} unless defined?(ENV_NAMES)
+
 namespace :rds do
   task :setup => ["rds:subnet_group:create", "rds:parameter_group:create", "rds:instance:create"]
 
@@ -9,8 +11,8 @@ namespace :rds do
     @rds  = AWS::RDS::Client.new(region: @rds_config[:region])
     @rds.instance_variable_set(:@endpoint, "rds.#{@rds_config[:region]}.amazonaws.com")
     @subnet_group_name    = @rds_config[:subnet_group_name]
-    @parameter_group_name = 'utf8mb4'
-    @charset              = 'utf8mb4'
+    @parameter_group_name = @rds_config[:charaset].downcase
+    @charset              = @rds_config[:charaset]
   end
 
   task :vpc => ['vpc:allocate'] do
@@ -31,28 +33,32 @@ namespace :rds do
 
   namespace :parameter_group do
     task :create => [:initialize] do
+      require 'pp'
       unless @rds.describe_db_parameter_groups[:db_parameter_groups].find{|_| _[:db_parameter_group_name] == @parameter_group_name }
         @rds.create_db_parameter_group(db_parameter_group_name: @parameter_group_name,
                                        db_parameter_group_family: @rds_config[:dbms],
                                        description: 'Use Unicode character')
       end
-      params = %w(character_set_database
-                  character_set_client
-                  character_set_connection
-                  character_set_results
-                  character_set_server).map{|name|
-        {parameter_name:   name,
-         parameter_value:  @charset,
-         apply_method:    'pending-reboot'}
-      }
-      params += {'skip-character-set-client-handshake' => '1',
-                 'innodb_file_format'                  => 'Barracuda',
-                 'innodb_file_per_table'               => '1',
-                 'innodb_large_prefix'                 => '1'}.map{|k, v|
-        {parameter_name:  k,
-          parameter_value: v,
-          apply_method:    'pending-reboot'}
-      }
+      params = []
+      if @character == "utf8mb4"
+        params = %w(character_set_database
+                    character_set_client
+                    character_set_connection
+                    character_set_results
+                    character_set_server).map{|name|
+          {parameter_name:   name,
+           parameter_value:  @charset,
+           apply_method:    'pending-reboot'}
+        } 
+        params += {'skip-character-set-client-handshake' => '1',
+                   'innodb_file_format'                  => 'Barracuda',
+                   'innodb_file_per_table'               => '1',
+                   'innodb_large_prefix'                 => '1'}.map{|k, v|
+          {parameter_name:  k,
+            parameter_value: v,
+            apply_method:    'pending-reboot'}
+        }
+      end
 
       @rds.modify_db_parameter_group(
         db_parameter_group_name: @parameter_group_name,
@@ -87,6 +93,7 @@ namespace :rds do
           @rds_instances = @rds.describe_db_instances[:db_instances]
           @rds_instance = @rds_instances.find{|_| _[:db_instance_identifier] == @rds_config[:instance_id] }
           @rds_readreplicas = @rds_instances.select{|_| _[:read_replica_source_db_instance_identifier] == @rds_config[:instance_id] }
+          break nil unless @rds_instance
           break if @rds_instance[:db_instance_status] == 'available'
           puts "#{Time.now.strftime("%F %T")} - Waing RDS boot ..."
           sleep 30

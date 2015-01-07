@@ -10,21 +10,22 @@ namespace :opsworks do
     end
   end
 
-  task :setup => ["rds:setup",
-                  "opsworks:stack:allocate",
+  task :setup => ["opsworks:stack:create",
+                  "rds:setup",
+                  "opsworks:stack:update",
                   "opsworks:layer:allocate",
                   "opsworks:instance:create",
                   "opsworks:app:allocate"]
 
   task :initialize do
-    @opsworks = AWS::OpsWorks::Client.new
+    @opsworks = AWS::OpsWorks::Client.new(region: "us-east-1")
     @opts     = Configure.new('opsworks').parse.update(Configure.new('vpc').parse)
   end
 
   %i(stg prod).each do |env|
     namespace env do
       task :initialize do
-        ENV['APP_ENV'] = env.to_s
+        ENV['RAILS_ENV'] = ENV_NAMES[env]
       end
 
       %i(setup deploy migrations seed start stack:update layer:update).each do |name|
@@ -36,9 +37,35 @@ namespace :opsworks do
   end
 
   namespace :stack do
-    task :config => [:initialize, 'vpc:allocate', 'vpc:subnet:allocate', 'rds:instance:show'] do
-      oauth = Configure.new('.oauth').parse
+    task :config => [:initialize, 'vpc:allocate', 'vpc:subnet:allocate'] do
       @stack_name = @opts[:stack_name]
+      @stack_config =
+      {name:                         @stack_name,
+       service_role_arn:             @opts[:service_role_arn],
+       default_instance_profile_arn: @opts[:default_instance_profile_arn],
+       configuration_manager: {name: 'Chef', version: @opts[:chef_version]},
+       use_custom_cookbooks: true,
+       custom_cookbooks_source: {type: 'git', url: 'https://github.com/oke-ya/cookbooks.git'},
+       default_subnet_id: @subnets[:public].first[:subnet_id] }
+    end
+
+    task :show => [:initialize, :config] do
+      if stack = @opsworks.describe_stacks[:stacks].find{|_| _[:name] == @stack_name }
+        @stack_id = stack[:stack_id]
+      end
+    end
+
+    task :create => [:initialize, :config, :show] do
+      break if @stack_id
+      
+      stack = @opsworks.create_stack({region: @opts[:region],
+                                      vpc_id: @vpc[:vpc_id],
+                                      use_opsworks_security_groups: true
+}.update(@stack_config))
+      @stack_id = stack[:stack_id]
+    end
+
+    task :update => [:show, 'rds:instance:show'] do
       database = {username: @rds_instance[:master_username],
                   password: ENV['AWS_ACCESS_KEY_ID'],
                   encoding: 'utf8mb4',
@@ -51,15 +78,11 @@ namespace :opsworks do
       custom_json = {
         content: {domain: @opts[:domain],
                   title:  @opts[:title]},
-        opensocial: {key:    oauth[:consumer_key],
-                     secret: oauth[:consumer_secret],
-                     app_id: oauth[:app_id]},
-        github: {token: oauth[:github_token]},
+        github: {token: @opts[:github_token]},
         deploy:     {@stack_name => {database:               database,
                                      read_replicas:          read_replicas,
                                      symlink_before_migrate: symlink_before_migrate}}
       }
-
       if ENV['APP_ENV'] == 'prod'
         # Rake::Task["elasti_cache:instance:show"].invoke
         # end_point = @elasti_cache_instance[:configuration_endpoint]
@@ -75,40 +98,8 @@ namespace :opsworks do
           end_point:     @s3.config.s3_endpoint
         }
         custom_json[:td_agent] = {includes: true}
-      else
-        custom_json[:opensocial][:sandbox] = true
       end
-
-      @stack_config =
-      {name:                         @stack_name,
-       custom_json:                  custom_json.to_json,
-       service_role_arn:             @opts[:service_role_arn],
-       default_instance_profile_arn: @opts[:default_instance_profile_arn],
-       configuration_manager: {name: 'Chef', version: @opts[:chef_version]},
-       use_custom_cookbooks: true,
-       custom_cookbooks_source: {type: 'git', url: 'https://github.com/oke-ya/cookbooks.git'},
-       default_subnet_id: @subnets[:public].first[:subnet_id] }
-    end
-
-    task :allocate => [:show] do
-      op = (@stack_id) ? 'update' : 'create'
-      Rake::Task["opsworks:stack:#{op}"].invoke
-    end
-
-    task :show => [:initialize, :config] do
-      if stack = @opsworks.describe_stacks[:stacks].find{|_| _[:name] == @stack_name }
-        @stack_id = stack[:stack_id]
-      end
-    end
-
-    task :create => [:initialize, :config] do
-      stack = @opsworks.create_stack({region: @opts[:region],
-                                      vpc_id: @vpc.vpc_id,
-}.update(@stack_config))
-      @stack_id = stack[:stack_id]
-    end
-
-    task :update => [:show] do
+      @stack_config[:custom_json] = custom_json.to_json
       @opsworks.update_stack({stack_id: @stack_id}.update(@stack_config))
     end
   end
@@ -145,10 +136,13 @@ namespace :opsworks do
          auto_assign_public_ips: true}
     end
 
-    task :allocate => [:show, 'opsworks:stack:allocate', 'elb:allocate'] do
+    task :allocate => [:show, 'opsworks:stack:create', 'elb:allocate'] do
       op = (@layer_id) ? 'update' : 'create'
       Rake::Task["opsworks:layer:#{op}"].invoke
-      @opsworks.attach_elastic_load_balancer(elastic_load_balancer_name: @elb[:name], layer_id: @layer_id)
+      begin AWS::OpsWorks::Errors::ValidationException
+        @opsworks.attach_elastic_load_balancer(elastic_load_balancer_name: @elb[:name], layer_id: @layer_id)
+      rescue AWS::OpsWorks::Errors::ValidationException
+      end
     end
 
     task :show => [:initialize, :config, 'opsworks:stack:show'] do
@@ -176,8 +170,8 @@ namespace :opsworks do
                                 layer_ids:        [@layer_id],
                                 ssh_key_name:     @opts[:ssh_key],
                                 instance_type:    @opts[:instance_type],
-                                os:               'Ubuntu 12.04 LTS',
-                                root_device_type: 'ebs')
+                                os:               @opts[:os],
+                                root_device_type: @opts[:root_device_type])
     end
 
     task :index => [:initialize, "opsworks:layer:show"] do

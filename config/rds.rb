@@ -15,4 +15,4 @@ end
 subnet_group_name ENV["SUBNET"]
 dbms              'postgres'
 dbms_version      '9.3.5'
-
+charaset 'UTF8'

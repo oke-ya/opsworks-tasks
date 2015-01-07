@@ -3,19 +3,22 @@ case ENV['RAILS_ENV']
 when 'staging'
   stack_name    "#{ENV["STACK_NAME"]}-stg"
   branch        'master'
-  instance_type 'm2.micro'
+  instance_type 't2.micro'
   rails_env     'staging'
+  root_device_type 'ebs'
 when 'production'
   stack_name    ENV["STACK_NAME"]
   branch        'release'
   instance_type 'm3.large'
   rails_env     'production'
+  root_device_type 'instance-store'
 else
   raise
 end
 title            ENV["APP_NAME"]
 service_role_arn "arn:aws:iam::139228664779:role/aws-opsworks-service-role"
 default_instance_profile_arn "arn:aws:iam::139228664779:instance-profile/aws-opsworks-ec2-role"
+os               'Ubuntu 14.04 LTS'
 chef_version     '11.10'
 ruby_version     '2.2.0'
 rubygems_version '2.1.5'
