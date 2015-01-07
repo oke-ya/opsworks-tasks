@@ -1,0 +1,126 @@
+aws_config = Rails.root.join('config', 'aws.rb')
+require aws_config if File.exists?(aws_config)
+
+namespace :rds do
+  task :setup => ["rds:subnet_group:create", "rds:parameter_group:create", "rds:instance:create"]
+
+  task :initialize do
+    @rds_config = Configure.new('rds').parse.update(Configure.new('vpc').parse)
+    @rds  = AWS::RDS::Client.new(region: @rds_config[:region])
+    @rds.instance_variable_set(:@endpoint, "rds.#{@rds_config[:region]}.amazonaws.com")
+    @subnet_group_name    = @rds_config[:subnet_group_name]
+    @parameter_group_name = 'utf8mb4'
+    @charset              = 'utf8mb4'
+  end
+
+  task :vpc => ['vpc:allocate'] do
+    ec2 = AWS::EC2.new(region: @rds_config[:region])
+    @vpc = ec2.vpcs[@vpc[:vpc_id]]
+  end
+
+  namespace :subnet_group do
+    task :create => [:initialize, 'vpc:subnet:allocate'] do
+      unless @rds.describe_db_subnet_groups[:db_subnet_groups].find{|_| _[:db_subnet_group_name] == @subnet_group_name}
+        subnet_ids =  @subnets[:private].map{|subnet| subnet[:subnet_id]}
+        @rds.create_db_subnet_group(db_subnet_group_name: @subnet_group_name,
+                                    db_subnet_group_description: "#{@app_name} game subnet.",
+                                    subnet_ids: subnet_ids)
+      end
+    end
+  end
+
+  namespace :parameter_group do
+    task :create => [:initialize] do
+      unless @rds.describe_db_parameter_groups[:db_parameter_groups].find{|_| _[:db_parameter_group_name] == @parameter_group_name }
+        @rds.create_db_parameter_group(db_parameter_group_name: @parameter_group_name,
+                                       db_parameter_group_family: @rds_config[:dbms],
+                                       description: 'Use Unicode character')
+      end
+      params = %w(character_set_database
+                  character_set_client
+                  character_set_connection
+                  character_set_results
+                  character_set_server).map{|name|
+        {parameter_name:   name,
+         parameter_value:  @charset,
+         apply_method:    'pending-reboot'}
+      }
+      params += {'skip-character-set-client-handshake' => '1',
+                 'innodb_file_format'                  => 'Barracuda',
+                 'innodb_file_per_table'               => '1',
+                 'innodb_large_prefix'                 => '1'}.map{|k, v|
+        {parameter_name:  k,
+          parameter_value: v,
+          apply_method:    'pending-reboot'}
+      }
+
+      @rds.modify_db_parameter_group(
+        db_parameter_group_name: @parameter_group_name,
+        parameters: params)
+    end
+  end
+
+  namespace :instance do
+    task :create => [:initialize, 'rds:security_groups:index'] do
+      engine = @rds_config[:dbms].gsub(/[0-9\.]+$/, '')
+      security_group_ids = @security_groups.select{|_| _.name == 'AWS-OpsWorks-DB-Master-Server' }.map(&:id)
+      begin
+        @rds.create_db_instance(allocated_storage:       @rds_config[:storage_gigabyte].to_i,
+                                engine:                  engine,
+                                db_instance_identifier:  @rds_config[:instance_id],
+                                db_instance_class:       @rds_config[:instance_class],
+                                master_username:         @rds_config[:instance_id].gsub(/\-/, '_'),
+                                master_user_password:    ENV['AWS_ACCESS_KEY_ID'],
+                                db_parameter_group_name: @parameter_group_name,
+                                db_subnet_group_name:    @subnet_group_name,
+                                engine_version:          @rds_config[:dbms_version],
+                                multi_az:                @rds_config[:multi_az],
+                                vpc_security_group_ids:  security_group_ids)
+      rescue AWS::RDS::Errors::DBInstanceAlreadyExists
+        # DO NOTHING
+      end
+    end
+
+    task :show => [:initialize] do
+      timeout 60 * 10 do
+        loop do
+          @rds_instances = @rds.describe_db_instances[:db_instances]
+          @rds_instance = @rds_instances.find{|_| _[:db_instance_identifier] == @rds_config[:instance_id] }
+          @rds_readreplicas = @rds_instances.select{|_| _[:read_replica_source_db_instance_identifier] == @rds_config[:instance_id] }
+          break if @rds_instance[:db_instance_status] == 'available'
+          puts "#{Time.now.strftime("%F %T")} - Waing RDS boot ..."
+          sleep 30
+        end
+      end
+    end
+  end
+
+  namespace :security_groups do
+    task :index => [:initialize, :vpc] do
+      @security_groups = @vpc.security_groups
+    end
+  end
+
+  %i(stg prod).each do |env|
+    namespace env do
+      task :set_env do
+        ENV['APP_ENV'] = env.to_s
+      end
+
+      namespace :read_replica do
+        task :create => [:set_env, 'rds:read_replica:create']
+      end
+    end
+  end
+
+  namespace :read_replica do
+    desc "create RDS read replica"
+    task :create => [:initialize, "rds:instance:show"] do
+      @rds.create_db_instance_read_replica(
+        source_db_instance_identifier:  @rds_config[:instance_id],
+        db_instance_class:              @rds_config[:instance_class],
+        db_instance_identifier:         "#{@rds_config[:instance_id]}#{@rds_instances.count}")
+      Rake::Task["opsworks:stack:update"].invoke
+    end
+  end
+end
