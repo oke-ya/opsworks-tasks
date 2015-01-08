@@ -107,7 +107,7 @@ namespace :opsworks do
   namespace :layer do
     task :config => [:initialize] do
       @layer_name = 'Rails Application Server'
-      setup     = ["bower", "opensocial", "nginx_repository", "rails::shards"]
+      setup     = ["bower", "nginx_repository", "rails::shards"]
       configure = []
       deploy    = ["github::public_key"]
       shutdown  = []
