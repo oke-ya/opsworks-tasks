@@ -28,9 +28,9 @@ namespace :opsworks do
         ENV['RAILS_ENV'] = ENV_NAMES[env]
       end
 
-      %i(setup deploy migrations seed start stack:update layer:update).each do |name|
+      %i(setup deploy migrations seed start stack:create stack:update layer:update).each do |name|
         desc "#{name} AWS OpsWorks stack #{env} ENV"
-        task_name = [:setup, :deploy, :'stack:update', :'layer:update'].include?(name) ? name : :"deploy:#{name}"
+        task_name = [:setup, :deploy, :'stack:create', :'stack:update', :'layer:update'].include?(name) ? name : :"deploy:#{name}"
         task name => [:initialize, "opsworks:#{task_name}"]
       end
     end
@@ -56,7 +56,7 @@ namespace :opsworks do
     end
 
     task :create => [:initialize, :config, :show] do
-      break if @stack_id
+      next if @stack_id
       
       stack = @opsworks.create_stack({region: @opts[:region],
                                       vpc_id: @vpc[:vpc_id],

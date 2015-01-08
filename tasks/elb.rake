@@ -4,7 +4,7 @@ require aws_config if File.exists?(aws_config)
 namespace :elb do
   task :allocate => ['vpc:initialize', 'vpc:allocate', 'vpc:subnet:allocate'] do
     subnet = @subnets[:public].first
-    name = "#{@app_name}-#{ENV['APP_ENV']}-http"
+    name = "#{@app_name}-#{ENV['RAILS_ENV']}-http"
     api = AWS::ELB::Client.new(region: @vpc_opts[:region])
     ec2 = AWS::EC2::Client.new(region: @vpc_opts[:region])
     unless @elb = api.describe_load_balancers[:load_balancer_descriptions].find{|desc| desc[:load_balancer_name] == name }

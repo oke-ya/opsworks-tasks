@@ -33,8 +33,7 @@ namespace :rds do
 
   namespace :parameter_group do
     task :create => [:initialize] do
-      require 'pp'
-      unless @rds.describe_db_parameter_groups[:db_parameter_groups].find{|_| _[:db_parameter_group_name] == @parameter_group_name }
+         unless @rds.describe_db_parameter_groups[:db_parameter_groups].find{|_| _[:db_parameter_group_name] == @parameter_group_name }
         @rds.create_db_parameter_group(db_parameter_group_name: @parameter_group_name,
                                        db_parameter_group_family: @rds_config[:dbms],
                                        description: 'Use Unicode character')

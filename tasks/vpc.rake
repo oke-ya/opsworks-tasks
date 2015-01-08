@@ -3,7 +3,7 @@ require aws_config if File.exists?(aws_config)
 
 namespace :vpc do
   task :initialize do
-    @vpc_opts = Configure.new('vpc').parse
+    @vpc_opts = Configure.new('vpc').parse.reverse_merge(Configure.new("opsworks"))
     @app_name = ENV["STACK_NAME"]
     @ec2 = AWS::EC2::Client.new(region: @vpc_opts[:region])
   end
@@ -17,6 +17,8 @@ namespace :vpc do
       @ec2.attach_internet_gateway(internet_gateway_id: internet_gateway[:internet_gateway_id],
                                    vpc_id: @vpc[:vpc_id])
     end
+    
+    
     Rake::Task['vpc:subnet:allocate']
     route_table = @ec2.describe_route_tables[:route_table_set].find{|table_set| table_set[:vpc_id] == @vpc[:vpc_id] }
     unless route_table[:route_set].find{|set| set[:destination_cidr_block] == '0.0.0.0/0'}
