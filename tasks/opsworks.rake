@@ -66,9 +66,12 @@ namespace :opsworks do
     end
 
     task :update => [:show, 'rds:instance:show'] do
+      @db_opts = Configure.new('rds').parse
+      adapter = @db_opts[:dbms] =~ /postgres/ ? 'postgresql' : 'mysql'
       database = {username: @rds_instance[:master_username],
+                  adapter:  adapter,
                   password: ENV['AWS_ACCESS_KEY_ID'],
-                  encoding: 'utf8mb4',
+                  encoding: @db_opts[:charaset],
                   host:     @rds_instance[:endpoint][:address],
                   port:     @rds_instance[:endpoint][:port],
                   database: @stack_name,
@@ -83,7 +86,7 @@ namespace :opsworks do
                                      read_replicas:          read_replicas,
                                      symlink_before_migrate: symlink_before_migrate}}
       }
-      if ENV['APP_ENV'] == 'prod'
+      if ENV['RAILS_ENV'] == 'production'
         # Rake::Task["elasti_cache:instance:show"].invoke
         # end_point = @elasti_cache_instance[:configuration_endpoint]
         # custom_json[:deploy][@stack_name][:memcached] =
@@ -106,13 +109,17 @@ namespace :opsworks do
 
   namespace :layer do
     task :config => [:initialize] do
+      @db_opts = Configure.new('rds').parse
       @layer_name = 'Rails Application Server'
       setup     = ["bower", "nginx_repository", "rails::shards"]
+      if @db_opts[:dbms] =~ /postgres/i
+        setup.unshift "postgresql"
+      end
       configure = []
       deploy    = ["github::public_key"]
       shutdown  = []
 
-      if ENV['APP_ENV'] != 'prod'
+      if ENV['RAILS_ENV'] != 'production'
         setup    << "memcached"
         shutdown << 'memcached::stop'
       else
@@ -241,7 +248,11 @@ namespace :opsworks do
     end
 
     task :execute, ['opts'] => [:initialize, 'opsworks:app:index', "opsworks:stack:update", "opsworks:layer:update"] do |t, args|
-      options = {deploy: {@stack_name => {asset: true}}}
+      env = %w(SECRET_KEY_BASE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY).map{|k|
+        [k, ENV[k]]
+      }.to_h
+      options = {deploy: {@stack_name => {asset: true,
+                                          environment: env}}}
       if ENV['APP_ENV'] == 'prod'
         # Rake::Task["elasti_cache:instance:show"].invoke
         # options[:deploy][@stack_name][:memcached] = {
