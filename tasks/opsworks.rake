@@ -117,7 +117,7 @@ namespace :opsworks do
     task :config => [:initialize] do
       @db_opts = Configure.new('rds').parse
       @layer_name = 'Rails Application Server'
-      setup     = ["bower", "nginx_repository", "rails::shards", "rails::dotenv"]
+      setup     = ["nodejs::install_from_source", "nginx_repository", "rails::shards", "rails::dotenv"]
       if @db_opts[:dbms] =~ /postgres/i
         setup.unshift "postgresql"
       end
