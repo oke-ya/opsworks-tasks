@@ -117,22 +117,14 @@ namespace :opsworks do
     task :config => [:initialize] do
       @db_opts = Configure.new('rds').parse
       @layer_name = 'Rails Application Server'
-      setup     = ["nodejs::install_from_source", "nginx_repository", "rails::shards", "rails::dotenv"]
+      setup     = ["nodejs::install_from_source", "nginx_repository", "rails::shards", "rails::dotenv", "fluentd_nginx", "memcached"]
       if @db_opts[:dbms] =~ /postgres/i
         setup.unshift "postgresql"
       end
       configure = []
       deploy    = ["github::public_key"]
-      shutdown  = []
+      shutdown  = ['memcached::stop']
 
-      if ENV['RAILS_ENV'] != 'production'
-        setup    << "memcached"
-        shutdown << 'memcached::stop'
-      else
-        setup    << "memcached"
-        shutdown << 'memcached::stop'
-        setup << "fluentd_nginx"
-      end
       @layer_config =
         {name:      @layer_name,
          shortname: 'app',
