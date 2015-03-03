@@ -71,6 +71,7 @@ namespace :rds do
       security_group_ids = @security_groups.select{|_| _.name == 'AWS-OpsWorks-DB-Master-Server' }.map(&:id)
       begin
         @rds.create_db_instance(allocated_storage:       @rds_config[:storage_gigabyte].to_i,
+                                storage_type:            "gp2",
                                 engine:                  engine,
                                 db_instance_identifier:  @rds_config[:instance_id],
                                 db_instance_class:       @rds_config[:instance_class],
