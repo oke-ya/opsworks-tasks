@@ -67,22 +67,17 @@ namespace :rds do
 
   namespace :instance do
     task :create => [:initialize, 'rds:security_groups:index'] do
-      engine = @rds_config[:dbms].gsub(/[0-9\.]+$/, '')
-      security_group_ids = @security_groups.select{|_| _.name == 'AWS-OpsWorks-DB-Master-Server' }.map(&:id)
       begin
-        @rds.create_db_instance(allocated_storage:       @rds_config[:storage_gigabyte].to_i,
-                                storage_type:            "gp2",
-                                engine:                  engine,
-                                db_instance_identifier:  @rds_config[:instance_id],
-                                db_instance_class:       @rds_config[:instance_class],
-                                db_name:       (db_name = @rds_config[:instance_id].gsub(/\-/, '_')),
-                                master_username:   db_name,
-                                master_user_password:    ENV['AWS_ACCESS_KEY_ID'],
-                                db_parameter_group_name: @parameter_group_name,
-                                db_subnet_group_name:    @subnet_group_name,
-                                engine_version:          @rds_config[:dbms_version],
-                                multi_az:                @rds_config[:multi_az],
-                                vpc_security_group_ids:  security_group_ids)
+        params = instance_params
+        params.update(allocated_storage:    @rds_config[:storage_gigabyte].to_i,
+                      master_username:      db_name,
+                      master_user_password: ENV['AWS_ACCESS_KEY_ID'],
+                      db_name:              db_name,
+                      db_parameter_group_name: @parameter_group_name,
+                      engine_version:          @rds_config[:dbms_version],
+                      vpc_security_group_ids:  security_group_ids)
+
+        @rds.create_db_instance(params)
       rescue AWS::RDS::Errors::DBInstanceAlreadyExists
         # DO NOTHING
       end
@@ -113,11 +108,18 @@ namespace :rds do
     namespace env do
       task :set_env do
         ENV['APP_ENV'] = env.to_s
+        ENV['RAILS_ENV'] = {stg: 'staging', prod: 'production'}[env]
       end
 
       namespace :read_replica do
         task :create => [:set_env, 'rds:read_replica:create']
       end
+
+      desc "create #{env} final snapshot and stop RDS instance"
+      task :stop => [:set_env, 'rds:stop']
+
+      desc "restart RDS instance using #{env} final snapshot"
+      task :restart => [:set_env, 'rds:restart']
     end
   end
 
@@ -130,5 +132,36 @@ namespace :rds do
         db_instance_identifier:         "#{@rds_config[:instance_id]}#{@rds_instances.count}")
       Rake::Task["opsworks:stack:update"].invoke
     end
+  end
+
+  task :stop => [:initialize, "rds:instance:show"] do
+    @rds.delete_db_instance(db_instance_identifier: @rds_config[:instance_id],
+                            final_db_snapshot_identifier: snapshot_name)
+  end
+
+  task :restart => [:initialize, "rds:instance:show", "rds:security_groups:index"] do
+    params = instance_params
+    params.update(db_snapshot_identifier: snapshot_name)
+    @rds.restore_db_instance_from_db_snapshot(params)
+  end
+
+  def snapshot_name
+    @rds_config[:instance_id] + "-final"
+  end
+
+  def db_name
+    @rds_config[:instance_id].gsub(/\-/, '_')
+  end
+
+  def instance_params
+    engine = @rds_config[:dbms].gsub(/[0-9\.]+$/, '')
+    security_group_ids = @security_groups.select{|_| _.name == 'AWS-OpsWorks-DB-Master-Server' }.map(&:id)
+
+    {storage_type:            "gp2",
+     engine:                  engine,
+     db_instance_identifier:  @rds_config[:instance_id],
+     db_instance_class:       @rds_config[:instance_class],
+     db_subnet_group_name:    @subnet_group_name,
+     multi_az:                @rds_config[:multi_az]}
   end
 end
