@@ -92,22 +92,20 @@ namespace :opsworks do
                                      app_env:                app_env,
                                      symlink_before_migrate: symlink_before_migrate}}
       }
-      if ENV['RAILS_ENV'] == 'production'
-        # Rake::Task["elasti_cache:instance:show"].invoke
-        # end_point = @elasti_cache_instance[:configuration_endpoint]
-        # custom_json[:deploy][@stack_name][:memcached] =
-        #   {host: end_point[:address],
-        #    port: end_point[:port]}
+      # Rake::Task["elasti_cache:instance:show"].invoke
+      # end_point = @elasti_cache_instance[:configuration_endpoint]
+      # custom_json[:deploy][@stack_name][:memcached] =
+      #   {host: end_point[:address],
+      #    port: end_point[:port]}
 
-        Rake::Task["s3:bucket:create"].invoke
-        custom_json[:s3] = {
-          access_key:    ENV['AWS_ACCESS_KEY_ID'],
-          access_secret: ENV['AWS_SECRET_ACCESS_KEY'],
-          bucket:        @bucket.name,
-          end_point:     @s3.config.s3_endpoint
-        }
-        custom_json[:td_agent] = {includes: true}
-      end
+      Rake::Task["s3:bucket:create"].invoke
+      custom_json[:s3] = {
+        access_key:    ENV['AWS_ACCESS_KEY_ID'],
+        access_secret: ENV['AWS_SECRET_ACCESS_KEY'],
+        bucket:        @bucket.name,
+        end_point:     @s3.config.s3_endpoint
+      }
+      custom_json[:td_agent] = {includes: true, version: '2'}
       @stack_config[:custom_json] = custom_json.to_json
       @opsworks.update_stack({stack_id: @stack_id}.update(@stack_config))
     end

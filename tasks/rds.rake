@@ -68,6 +68,7 @@ namespace :rds do
   namespace :instance do
     task :create => [:initialize, 'rds:security_groups:index'] do
       begin
+        security_group_ids = @security_groups.select{|_| _.name == 'AWS-OpsWorks-DB-Master-Server' }.map(&:id)
         params = instance_params
         params.update(allocated_storage:    @rds_config[:storage_gigabyte].to_i,
                       master_username:      db_name,
@@ -155,8 +156,6 @@ namespace :rds do
 
   def instance_params
     engine = @rds_config[:dbms].gsub(/[0-9\.]+$/, '')
-    security_group_ids = @security_groups.select{|_| _.name == 'AWS-OpsWorks-DB-Master-Server' }.map(&:id)
-
     {storage_type:            "gp2",
      engine:                  engine,
      db_instance_identifier:  @rds_config[:instance_id],

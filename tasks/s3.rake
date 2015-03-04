@@ -12,7 +12,11 @@ namespace :s3 do
   namespace :bucket do
     task :create => [:"s3:initialize"] do
       name = @opts[:stack_name] + "-nginx-log"
-      @bucket = @s3.buckets.create(name)
+      begin
+        @bucket = @s3.buckets.create(name)
+      rescue AWS::S3::Errors::BucketAlreadyOwnedByYou
+        @bucket = @s3.buckets[name]
+      end
       @s3.config.s3_endpoint
     end
   end
