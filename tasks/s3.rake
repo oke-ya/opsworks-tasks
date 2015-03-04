@@ -17,7 +17,6 @@ namespace :s3 do
       rescue AWS::S3::Errors::BucketAlreadyOwnedByYou
         @bucket = @s3.buckets[name]
       end
-      @s3.config.s3_endpoint
     end
   end
 end

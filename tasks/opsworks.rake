@@ -103,7 +103,7 @@ namespace :opsworks do
         access_key:    ENV['AWS_ACCESS_KEY_ID'],
         access_secret: ENV['AWS_SECRET_ACCESS_KEY'],
         bucket:        @bucket.name,
-        end_point:     @s3.config.s3_endpoint
+        region:        ENV["AWS_REGION"]
       }
       custom_json[:td_agent] = {includes: true, version: '2'}
       @stack_config[:custom_json] = custom_json.to_json
