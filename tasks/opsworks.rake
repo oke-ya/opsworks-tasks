@@ -80,9 +80,10 @@ namespace :opsworks do
       symlink_before_migrate = {"config/shards.yml" => "config/shards.yml",
                                 ".env"              => ".env"}
 
-      app_env = %w(SECRET_KEY_BASE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY).map{|k|
+      app_env = %w(SECRET_KEY_BASE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION).map{|k|
         [k, ENV[k]]
       }.to_h
+      app_env.update("FOG_DIRECTORY" => @stack_name, "ASSET_BUCKET" => @stack_name)
       custom_json = {
         content: {domain: @opts[:domain],
                   title:  @opts[:title]},
@@ -195,7 +196,7 @@ namespace :opsworks do
                               ssh_key:  File.read(@opts[:deploy_key_local_path]),
                               url:      @opts[:repository],
                               revision: @opts[:branch]},
-                 attributes: {'RailsEnv'           => @opts[:rails_env],
+                 attributes: {'RailsEnv'           => "production",
                               'AutoBundleOnDeploy' => 'true',
                               'DocumentRoot'       => 'public'}}
     end
