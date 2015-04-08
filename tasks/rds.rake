@@ -136,6 +136,7 @@ namespace :rds do
   end
 
   task :stop => [:initialize, "rds:instance:show"] do
+    @rds.delete_db_snapshot(db_snapshot_identifier: snapshot_name)
     @rds.delete_db_instance(db_instance_identifier: @rds_config[:instance_id],
                             final_db_snapshot_identifier: snapshot_name)
   end
