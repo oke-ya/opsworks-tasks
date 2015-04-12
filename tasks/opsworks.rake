@@ -83,7 +83,8 @@ namespace :opsworks do
       app_env = %w(SECRET_KEY_BASE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION).map{|k|
         [k, ENV[k]]
       }.to_h
-      app_env.update("FOG_DIRECTORY" => @stack_name, "ASSET_BUCKET" => @stack_name)
+      s3bucket = "asset-#{@opts[:domain]}"
+      app_env.update("FOG_DIRECTORY" => s3bucket, "ASSET_BUCKET" => s3bucket)
       custom_json = {
         content: {domain: @opts[:domain],
                   title:  @opts[:title]},
@@ -116,7 +117,7 @@ namespace :opsworks do
     task :config => [:initialize] do
       @db_opts = Configure.new('rds').parse
       @layer_name = 'Rails Application Server'
-      setup     = ["nodejs::install_from_source", "nginx_repository", "rails::shards", "rails::dotenv", "fluentd_nginx", "memcached"]
+      setup     = ["nodejs::install_from_source", "nginx_repository", "rails::shards", "rails::dotenv", "memcached"]
       if @db_opts[:dbms] =~ /postgres/i
         setup.unshift "postgresql"
       end
